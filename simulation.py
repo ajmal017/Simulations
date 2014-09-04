@@ -13,8 +13,10 @@ import pandas as pd
 import matplotlib as plt
 from datetime import date 
 from time import sleep 
+import datetime
 
 from strategy import Strategy 
+from get_prices_from_IB import IB_API
 
 
 #===============================================================================
@@ -58,8 +60,9 @@ class Simulation():
         
         
         ## 3. Get prices
-        self.get_prices_yahoo()
-        
+        ### RNA 04/09/2014 Including prices download from IB, this function will be launch manually
+        #self.get_prices_yahoo()
+        ### END RNA 04/09/2014
         
     
     def apply_strategy(self, strategy):
@@ -120,6 +123,16 @@ class Simulation():
 #         print "The log is:"
 #         print df_result
         
+    def close_trade(self, close, pct_profit_trade):
+        self.close = close
+        self.abs_profit += self.close - self.open 
+        self.pct_compound_profit = np.sqrt((1+self.pct_compound_profit)*(1+pct_profit_trade)) - 1.0
+        self.status = 'out'
+        self.ntrades += 1
+        self.profit_trades.append(pct_profit_trade)
+        if self.abs_profit < self.drawdown:   # Calculation of drawdown
+            self.drawdown = self.abs_profit     
+        
         
     def get_prices_yahoo(self):
         """
@@ -134,29 +147,40 @@ class Simulation():
             print e
             sleep(20)
             
+    
+    def get_prices_IB(self):
+        """
+        It get prices data from Interactive Brokers
+        """
+        try:
+            # Connection
+            ib = IB_API()
+    
+            # Input data and call 
+            contract_values = {
+                       'm_symbol': self.symbol,
+                       'm_exchange': 'SMART',
+                       'm_secType': 'STK',
+                       'm_currency': 'USD'
+                       }
+            now = datetime.datetime.now()
+            endDateTime = now.strftime('%Y%m%d %H:%M:%S')
+            durationStr = '1 W'
+            barSizeSetting = '5 mins'
+            ib.get_historical_data(1, contract_values, endDateTime = endDateTime, 
+                           durationStr = durationStr, barSizeSetting = barSizeSetting)
+    
+            self.df_prices = pd.DataFrame(ib.d_hist_data)
+            self.df_prices = self.df_prices.T
+            print self.df_prices.head()
+        
+        except Exception, e:
+            print e
+            sleep(20)
         
         
     
-        
-                
             
-    def open_trade(self, open):
-        self.open = open
-        if self.open > self.max_open:
-            self.max_open = self.open 
-        self.status = 'in'
-        self.signal = True
-        
-    def close_trade(self, close, pct_profit_trade):
-        self.close = close
-        self.abs_profit += self.close - self.open 
-        self.pct_compound_profit = np.sqrt((1+self.pct_compound_profit)*(1+pct_profit_trade)) - 1.0
-        self.status = 'out'
-        self.ntrades += 1
-        self.profit_trades.append(pct_profit_trade)
-        if self.abs_profit < self.drawdown:   # Calculation of drawdown
-            self.drawdown = self.abs_profit 
-        
     def get_result(self):
         
         
@@ -182,6 +206,22 @@ class Simulation():
         else: s_result['sharpe'] = np.nan 
         print s_result['sharpe']
         return s_result
+        
+    
+        
+                
+            
+    def open_trade(self, open):
+        self.open = open
+        if self.open > self.max_open:
+            self.max_open = self.open 
+        self.status = 'in'
+        self.signal = True
+        
+    
+        
+        
+    
     
     def save_result(self):
         # 0. In case there is no data, nothing is done
@@ -214,17 +254,28 @@ if __name__=='__main__':
     
     
     #===========================================================================
-    # PCTDOWN-NUPS
+    # PCTDOWN-NUPS - INTERDAY WITH YAHOO PRICES
     #===========================================================================
     strategy = Strategy(type='pctdown-nups', pctdown=5.0, nups=1)
     sim = Simulation("SPY", from_date='20000101', to_date='20140612')
+    sim.get_prices_yahoo()
     sim.apply_strategy(strategy)
     s_result = sim.get_result()
     sim.save_result()
     print 'pctdown-nups: '
     print s_result
     
-    
+    #===========================================================================
+    # PCTDOWN-NUPS - INTRADAY WITH IB PRICES
+    #===========================================================================
+    strategy = Strategy(type='pctdown-nups', pctdown=5.0, nups=1)
+    sim = Simulation("AAPL", from_date='20000101', to_date='20140612')
+    sim.get_prices_IB()
+    sim.apply_strategy(strategy)
+    s_result = sim.get_result()
+    sim.save_result()
+    print 'pctdown-nups: '
+    print s_result
     
     
     
